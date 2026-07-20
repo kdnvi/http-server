@@ -10,6 +10,20 @@
 #define PORT 8080
 #define BACKLOG 12
 #define BUF_SIZE 4096
+#define HEADER_CAP 32
+
+struct http_header {
+  char *name;
+  char *value;
+};
+
+struct http_request {
+  char *method;
+  char *target;
+  char *version;
+  struct http_header *headers;
+  size_t header_count;
+};
 
 int main(void) {
   // create an endpoint for communication, return a file descriptor
@@ -49,11 +63,65 @@ int main(void) {
       continue;
     }
 
-    unsigned char buf[BUF_SIZE];
+    char buf[BUF_SIZE];
     const ssize_t n = read(client_fd, buf, sizeof(buf) - 1);
     if (n > 0) {
       buf[n] = '\0';
       printf("recieved:\n%s\n", buf);
+
+      struct http_request req;
+      req.method = buf;
+      char *ptr = strchr(req.method, ' ');
+      if (ptr == NULL) {
+        perror("malformed request");
+        close(client_fd);
+        continue;
+      }
+      *ptr = '\0';
+      printf("method: %s\n", req.method);
+
+      req.target = ptr + 1;
+      ptr = strchr(req.target, ' ');
+      if (ptr == NULL) {
+        perror("malformed request");
+        close(client_fd);
+        continue;
+      }
+      *ptr = '\0';
+      printf("target: %s\n", req.target);
+
+      req.version = ptr + 1;
+      ptr = strstr(req.version, "\r\n");
+      if (ptr == NULL) {
+        perror("malformed request");
+        close(client_fd);
+        continue;
+      }
+      *ptr = '\0';
+      printf("version: %s\n", req.version);
+
+      // header parse
+      struct http_header *headers =
+          malloc(HEADER_CAP * sizeof(struct http_header));
+      req.header_count = 0;
+      char *line = ptr + 2; // skip \0\n
+      for (;;) {
+        ptr = strstr(line, ": ");
+        if (ptr == NULL) {
+          break;
+        }
+        *ptr = '\0';
+        printf("key: %s\n", line);
+        line = ptr + 2;
+        ptr = strstr(line, "\r\n");
+        if (ptr == NULL) {
+          perror("no value for key header");
+          continue;
+        }
+        *ptr = '\0';
+        printf("value: %s\n", line);
+        line = ptr + 2;
+      }
     } else if (n < 0) {
       perror("read failed");
     } else {
